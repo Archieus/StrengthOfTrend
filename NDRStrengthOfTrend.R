@@ -1,5 +1,6 @@
 library(quantmod)
 library(DSTrading)
+library(tseries)
 Sys.setenv(TZ = "EST5EDT")
 
 y <- read.csv('http://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=SPY&outputsize=full&apikey=Y474&datatype=csv')
@@ -8,7 +9,13 @@ y.new <- cbind(y[,c(2:5,7,6)])
 rownames(y.new) <-y[,1]
 SPY <- as.xts(y.new)
 
+PValue <- suppressWarnings(as.data.frame(rollapply(last(as.ts(SPY[,6]),300), 30, function(u) adf.test(u,k=1)$p.value)))
+
 ### STRENGTH OF TREND CONCEPT ###
+
+#TREND = 1
+#CYCLE (MEAN REVERSION) = -1
+#NEUTRAL = 0
 
 ###1. ADX(42)###
 ADX42 <- na.omit(ADX(SPY[,2:4], 42))$ADX
@@ -80,7 +87,10 @@ R2Sig.x <- as.xts(R2.Signal)
 
 ###NDR Uses a 42-day lookback and a 504-SMA for the BandPass Indicator###
 ###It appears this version of EMD is calculated slightly differently than Ehlers EMD###
-SPY.BP <- KEMD(SPY[,4],.7,30 ,.25, "SMA")
+###bandFraction = .25 will allow you to trade when is cycle mode (Swing Trades)
+###and keep you out of the market when in trend mode (Momentum Trading)
+
+SPY.BP <- KEMD(SPY[,4], delta =.7,n = 30 ,bandFraction =.25, maType ="SMA")
 BP.SMA <- SMA(SPY.BP$trend,360)
 BPData <- na.omit(cbind(SPY.BP$trend,BP.SMA))
 
@@ -106,7 +116,23 @@ NDR.EQWt <- as.data.frame(rowMeans(NDR.Comp))
 rownames(NDR.EQWt) <- index(NDR.Comp)
 NDRComp.x <- as.xts(NDR.EQWt)
 
+NDR.SM10 <- EMA(NDRComp.x,10, wilder = TRUE) #EMA = Smoothing
+
+# layout(1:3)
+# chart_Series(SPY[,4]['2017:/'], name = "SPY Daily")
+# chart_Series(NDRComp.x['2017:/'],name = "NDR Strength of Trend Composite (w/10-day Smoothing)", TA = "add_TA(NDR.SM10, on = 1)")
+# chart_Series(SPY.BP[,1]['2017:/'],
+#              name = "KEMD, > Peak(Red)= UpTrend, < Valley(Green) = DownTrend, < Red > Green = Range",
+#              TA = c("add_TA(SPY.BP$peak, on = 1, col = 2)", 
+#                     "add_TA(SPY.BP$valley, on = 1, col = 3)", 
+#                     "add_TA(SPY.BP$momentum, col = 4)"))
+
+##Revised to include Momentum for Trend Direction##
 layout(1:3)
 chart_Series(SPY[,4]['2017:/'], name = "SPY Daily")
-chart_Series(NDRComp.x['2017:/'],name = "NDR Strenght of Trend Composite")
-chart_Series((SPY.BP['2017:/'])$trend, name = "Empirical Mode Decomposition", TA = "add_TA(BP.SMA['2017:/'], on = 1)")
+chart_Series(NDRComp.x['2017:/'],name = "NDR Strength of Trend Composite (w/10-day Smoothing)", TA = "add_TA(NDR.SM10, on = 1)")
+#chart_Series(EMA(NDRComp.x['2017:/'],10, wilder = TRUE),name = "10-Day Smoothing NDR Strength of Trend Composite")
+chart_Series((SPY.BP['2017:/'])$trend, name = "Empirical Mode Decomposition",
+             TA = c("add_TA(BP.SMA, on = 1)", "add_TA(SPY.BP$momentum, col = 4)"))
+
+View(tail(SPY.BP))
